@@ -21,6 +21,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
+#include <errno.h>
 #include "rl78g10.h"
 #include "serial.h"
 #include "srec.h"
@@ -71,8 +72,9 @@ int main(int argc, char *argv[])
             if (optarg == endp
                 || MODE_MAX_VALUE < mode)
             {
+                fprintf(stderr, "Invalid mode\n");
                 printf("%s", usage);
-                return 0;
+                return EINVAL;
             }
             break;
         case 't':
@@ -80,8 +82,9 @@ int main(int argc, char *argv[])
             terminal_baud = strtol(optarg, &endp, 10);
             if (optarg == endp)
             {
+                fprintf(stderr, "Terminal baudrate is not defined\n");
                 printf("%s", usage);
-                return 0;
+                return EINVAL;
             }
             break;
         case 'v':
@@ -104,9 +107,12 @@ int main(int argc, char *argv[])
             break;
         case 'h':
         case '?':
-        default:
             printf("%s", usage);
-            return 0;
+            return ECANCELED;
+        default:
+            fprintf(stderr, "Unknown argument: %c\n", opt);
+            printf("%s", usage);
+            return EINVAL;
         }
     }
     if (invert_reset)
@@ -129,7 +135,7 @@ int main(int argc, char *argv[])
         break;
     default:
         printf("%s", usage);
-        return 0;
+        return EINVAL;
     }
 
     // If file is not specified, but required - show error message
@@ -137,7 +143,7 @@ int main(int argc, char *argv[])
         && (1 == write || 1 == verify))
     {
         fprintf(stderr, "Specify both file and size\n");
-        return -1;
+        return EINVAL;
     }
 
     int codesize = 0;
@@ -151,13 +157,13 @@ int main(int argc, char *argv[])
         if (codesize & (codesize - 1))
         {
             fprintf(stderr, "Size (%i) is not valid (not power ot 2)\n", codesize);
-            return -2;
+            return EINVAL;
         }
         /* if codesize is in valid range: 512...64k */
         if (codesize < 512 || codesize > 64*1024)
         {
             fprintf(stderr, "Size (%i) is not valid (not in range)\n", codesize);
-            return -2;
+            return EINVAL;
         }
     }
 
@@ -174,16 +180,17 @@ int main(int argc, char *argv[])
     int rc = 0;
     if (INVALID_HANDLE_VALUE == fd)
     {
-        return -1;
+        return EBADF;
     }
     rc = serial_set_parity(fd, ENABLE, ODD);
     if (rc < 0)
     {
         perror("Failed to set port attributes:");
         serial_close(fd);
-        return -1;
+        return EIO;
     }
 
+    int retcode = 0;
     do
     {
         if (1 == write || 1 == verify)
@@ -192,6 +199,7 @@ int main(int argc, char *argv[])
             if (0 > rc)
             {
                 fprintf(stderr, "Initialization failed\n");
+                retcode = EIO;
                 break;
             }
             unsigned char code[codesize];
@@ -205,6 +213,7 @@ int main(int argc, char *argv[])
             if (0 != rc)
             {
                 fprintf(stderr, "Read failed\n");
+                retcode = EIO;
                 break;
             }
 
@@ -218,6 +227,7 @@ int main(int argc, char *argv[])
                 if (0 != rc)
                 {
                     fprintf(stderr, "Write failed\n");
+                    retcode = EIO;
                     break;
                 }
             }
@@ -231,6 +241,7 @@ int main(int argc, char *argv[])
                 if (0 != rc)
                 {
                     fprintf(stderr, "Verify failed\n");
+                    retcode = EIO;
                     break;
                 }
             }
@@ -257,5 +268,5 @@ int main(int argc, char *argv[])
     while (0);
     serial_close(fd);
     printf("\n");
-    return 0;
+    return retcode;
 }
